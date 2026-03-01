@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Build / output
+.next/
+out/
+dist/
+*.egg-info/
+
+# Data (PoC local storage)
+data/uploads/
+data/outputs/
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
