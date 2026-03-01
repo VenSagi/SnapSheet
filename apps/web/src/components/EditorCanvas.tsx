@@ -159,7 +159,7 @@ export default function EditorCanvas({
         }}
       >
         <Layer ref={layerRef}>
-          {/* Page background */}
+          {/* Page background - click to deselect */}
           <Rect
             x={0}
             y={0}
@@ -170,6 +170,8 @@ export default function EditorCanvas({
             shadowBlur={4}
             shadowOffsetX={2}
             shadowOffsetY={2}
+            onClick={() => setSelectedId(null)}
+            onTap={() => setSelectedId(null)}
           />
           {pagePlacements.map((placement) => {
             const asset = assets.find((a) => a.id === placement.assetId);
