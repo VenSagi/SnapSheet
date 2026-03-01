@@ -25,10 +25,17 @@ export function computeAutolayout(
   const [pageW, pageH] =
     orientation === "landscape" ? [pts.h, pts.w] : [pts.w, pts.h];
 
-  const contentW = pageW - margins.left * INCH_TO_POINTS - margins.right * INCH_TO_POINTS;
-  const contentH = pageH - margins.top * INCH_TO_POINTS - margins.bottom * INCH_TO_POINTS;
-  const contentX = margins.left * INCH_TO_POINTS;
-  const contentY = margins.top * INCH_TO_POINTS;
+  const marginLeftPt = margins.left * INCH_TO_POINTS;
+  const marginRightPt = margins.right * INCH_TO_POINTS;
+  const marginTopPt = margins.top * INCH_TO_POINTS;
+  const marginBottomPt = margins.bottom * INCH_TO_POINTS;
+
+  const contentX = marginLeftPt;
+  const contentY = marginTopPt;
+  const contentRight = pageW - marginRightPt;
+  const contentBottom = pageH - marginBottomPt;
+  const contentW = contentRight - contentX;
+  const contentH = contentBottom - contentY;
 
   const cols = orientation === "portrait" ? 2 : 3;
   const imagesPerPage = Math.max(1, Math.ceil(assets.length / targetPages));
@@ -40,11 +47,11 @@ export function computeAutolayout(
   const result: Record<number, Placement[]> = {};
   let assetIdx = 0;
 
-  for (let page = 0; page < targetPages && assetIdx < assets.length; page++) {
+  for (let page = 0; page < targetPages; page++) {
     const placements: Placement[] = [];
     const pageAssetCount = Math.min(
       imagesPerPage,
-      assets.length - assetIdx
+      Math.max(0, assets.length - assetIdx)
     );
     const pageRows = Math.ceil(pageAssetCount / cols);
 
@@ -58,10 +65,22 @@ export function computeAutolayout(
           cellW / asset.width,
           cellH / asset.height
         );
-        const w = asset.width * scale;
-        const h = asset.height * scale;
-        const x = cellX + (cellW - w) / 2;
+        let w = asset.width * scale;
+        let h = asset.height * scale;
+        let x = cellX + (cellW - w) / 2;
         const y = cellY + (cellH - h) / 2;
+
+        // Clamp to content bounds (avoids right/bottom overflow from floating point)
+        const rightEdge = x + w;
+        if (rightEdge > contentRight) {
+          w = Math.max(20, contentRight - x);
+          h = asset.height * (w / asset.width);
+        }
+        const bottomEdge = y + h;
+        if (bottomEdge > contentBottom) {
+          h = Math.max(20, contentBottom - y);
+          w = asset.width * (h / asset.height);
+        }
 
         placements.push({ assetId: asset.id, x, y, w, h });
         assetIdx++;
