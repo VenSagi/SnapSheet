@@ -5,6 +5,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
+from db import init_db
+from routes.assets import router as assets_router
+from routes.projects import router as projects_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -30,14 +33,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(projects_router)
+app.include_router(assets_router)
+
 
 @app.on_event("startup")
 def startup():
-    """Create upload and output directories if missing; log settings."""
+    """Create upload/output dirs, init DB; log settings."""
     for dir_path in [settings.UPLOAD_DIR, settings.OUTPUT_DIR]:
         p = Path(dir_path)
         p.mkdir(parents=True, exist_ok=True)
         logger.info("Ensured directory exists: %s", p.resolve())
+
+    init_db()
+    logger.info("Database initialized at %s", settings.DB_PATH)
 
     logger.info(
         "Startup settings: env=%s, web_origin=%s, upload_dir=%s, output_dir=%s, max_upload_mb=%s",

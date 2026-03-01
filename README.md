@@ -35,16 +35,26 @@ python -m uvicorn main:app --reload
 
 Runs at [http://localhost:8000](http://localhost:8000). Health check: [http://localhost:8000/health](http://localhost:8000/health).
 
+**Key API endpoints:**
+- `POST /projects` – create project (body: `{"name": "..."}`)
+- `GET /projects/{id}` – get project with assets (each asset has `file_url`)
+- `POST /projects/{id}/assets` – upload images (multipart, field: `files`)
+- `GET /assets/{id}/file` – serve image file
+
 **Where files are stored (PoC):**
 
 - `data/uploads` – uploaded images (created on startup if missing)
 - `data/outputs` – exported PDFs (created on startup if missing)
+- `data/db.sqlite` – SQLite metadata DB (projects, assets, exports)
 
-Paths are relative to `apps/api` when run from that directory. Override via env vars (`UPLOAD_DIR`, `OUTPUT_DIR`). See `apps/api/.env.example`.
+Paths are relative to `apps/api` when run from that directory. Override via env vars (`UPLOAD_DIR`, `OUTPUT_DIR`, `DB_PATH`). See `apps/api/.env.example`.
+
+**Reset the database:** Delete `data/db.sqlite` and restart the API. Tables are recreated on startup.
 
 ## Data Directories (PoC)
 
 - `data/uploads` – uploaded images
 - `data/outputs` – exported PDFs
+- `data/db.sqlite` – SQLite metadata DB
 
 These are excluded from git via `.gitignore`.
