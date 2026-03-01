@@ -37,12 +37,8 @@ export function computeAutolayout(
   const contentW = contentRight - contentX;
   const contentH = contentBottom - contentY;
 
-  const cols = orientation === "portrait" ? 2 : 3;
+  const maxCols = orientation === "portrait" ? 2 : 3;
   const imagesPerPage = Math.max(1, Math.ceil(assets.length / targetPages));
-  const rows = Math.ceil(imagesPerPage / cols);
-
-  const cellW = contentW / cols;
-  const cellH = contentH / rows;
 
   const result: Record<number, Placement[]> = {};
   let assetIdx = 0;
@@ -53,7 +49,11 @@ export function computeAutolayout(
       imagesPerPage,
       Math.max(0, assets.length - assetIdx)
     );
+    // Use fewer cols when we have fewer images (e.g. 1 image = full width)
+    const cols = Math.min(maxCols, Math.max(1, pageAssetCount));
     const pageRows = Math.ceil(pageAssetCount / cols);
+    const cellW = contentW / cols;
+    const cellH = contentH / pageRows;
 
     for (let r = 0; r < pageRows && assetIdx < assets.length; r++) {
       for (let c = 0; c < cols && assetIdx < assets.length; c++) {

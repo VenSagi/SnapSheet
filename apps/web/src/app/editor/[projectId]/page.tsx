@@ -69,11 +69,24 @@ export default function EditorPage({
     setPageIndex(0);
   }, [assets, settings]);
 
+  // Initial layout when assets load
   useEffect(() => {
     if (assets.length > 0 && Object.keys(placements).length === 0) {
       applyAutolayout();
     }
   }, [assets, placements, applyAutolayout]);
+
+  // Re-layout when target pages, paper, or orientation changes (spread images across new page count)
+  useEffect(() => {
+    if (assets.length === 0) return;
+    const next = computeAutolayout(
+      assets.map((a) => ({ id: a.id, width: a.width, height: a.height })),
+      settings
+    );
+    setPlacements(next);
+    setPageIndex(0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run when layout-affecting settings change; settings/assets from closure are current
+  }, [settings.targetPages, settings.paper, settings.orientation]);
 
   const handlePlacementsChange = useCallback(
     (pageIdx: number, next: Placement[]) => {
