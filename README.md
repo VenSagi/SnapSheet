@@ -39,16 +39,18 @@ Runs at [http://localhost:8000](http://localhost:8000). Health check: [http://lo
 
 1. **Create project** – Go to `/new`. A project is created automatically when you first upload.
 2. **Upload images** – Drag & drop or click to select PNG, JPG, JPEG, or WebP. Max 25MB per file, max 200 assets per project.
-3. **Edit layout** – Click "Continue to Editor". Adjust paper size, orientation, margins, and target pages. Use "Reset layout" to reflow images.
-4. **Export PDF** – Click "Export PDF". The file downloads in a new tab. A success message confirms the export.
+3. **Edit layout** – Click "Continue to Editor". Layout autosaves (debounced 1s). Refresh to verify persistence.
+4. **Export PDF** – Click "Export PDF". Versions auto-increment (v1, v2, …). The file downloads in a new tab.
 
 ## Key API Endpoints
 
 - `POST /projects` – create project (body: `{"name": "..."}`)
 - `GET /projects/{id}` – get project with assets (each asset has `file_url`)
+- `GET /projects/{id}/layout` – get saved layout (or null)
+- `PUT /projects/{id}/layout` – save layout (body: `{"layout": { settings, placements } }`)
 - `POST /projects/{id}/assets` – upload images (multipart, field: `files`)
 - `GET /assets/{id}/file` – serve image file
-- `POST /projects/{id}/export` – export to PDF (body: page settings + placements in points)
+- `POST /projects/{id}/export` – export to PDF (body: page settings + placements; optional `version_name`)
 - `GET /exports/{id}/download` – download exported PDF
 
 ## Validation & Limits

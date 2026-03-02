@@ -17,12 +17,19 @@ class ExportPlacementItem(BaseModel):
     y: float = Field(..., ge=0)
     w: float = Field(..., gt=0)
     h: float = Field(..., gt=0)
+    rotation: float = Field(0, description="Rotation in degrees, clockwise")
 
 
 class ExportPage(BaseModel):
     """Placements for one page."""
 
     items: list[ExportPlacementItem] = Field(default_factory=list)
+
+
+class SaveLayoutRequest(BaseModel):
+    """Request body for PUT /projects/{id}/layout."""
+
+    layout: dict = Field(..., description="JSON: { settings, placements }")
 
 
 class ExportRequest(BaseModel):
@@ -39,3 +46,4 @@ class ExportRequest(BaseModel):
         ...,
         description="pages[] each with items[] { assetId, x, y, w, h } in points",
     )
+    version_name: str | None = Field(None, description="Optional e.g. 'v1'; if missing, auto-increment")

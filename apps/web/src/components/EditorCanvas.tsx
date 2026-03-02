@@ -59,39 +59,86 @@ function DraggableImage({
 
   if (!img) return null;
 
+  const rotation = placement.rotation ?? 0;
+  const hasRotation = rotation !== 0;
+  const offsetX = hasRotation ? placement.w / 2 : 0;
+  const offsetY = hasRotation ? placement.h / 2 : 0;
+  const posX = hasRotation ? placement.x + placement.w / 2 : placement.x;
+  const posY = hasRotation ? placement.y + placement.h / 2 : placement.y;
+
   return (
     <>
       <KonvaImage
         ref={shapeRef}
         image={img}
-        x={placement.x}
-        y={placement.y}
+        x={posX}
+        y={posY}
         width={placement.w}
         height={placement.h}
+        rotation={rotation}
+        offsetX={offsetX}
+        offsetY={offsetY}
         draggable
         onClick={onSelect}
         onTap={onSelect}
         onDragEnd={(e) => {
           const node = e.target;
+          const nx = node.x();
+          const ny = node.y();
+          const ox = node.offsetX();
+          const oy = node.offsetY();
+          const topLeftX = ox ? nx - ox : nx;
+          const topLeftY = oy ? ny - oy : ny;
           onChange({
             ...placement,
-            x: node.x(),
-            y: node.y(),
+            x: topLeftX,
+            y: topLeftY,
           });
         }}
-        onTransformEnd={(e) => {
+        onTransformEnd={() => {
           const node = shapeRef.current;
           if (!node) return;
           const scaleX = node.scaleX();
           const scaleY = node.scaleY();
+          const rot = node.rotation();
+          const hadOffset = (node.offsetX() || 0) !== 0 || (node.offsetY() || 0) !== 0;
           node.scaleX(1);
           node.scaleY(1);
+          node.rotation(0);
+          const newW = Math.max(20, node.width() * scaleX);
+          const newH = Math.max(20, node.height() * scaleY);
+          node.width(newW);
+          node.height(newH);
+          node.rotation(rot);
+          let topLeftX: number;
+          let topLeftY: number;
+          if (rot !== 0) {
+            node.offsetX(newW / 2);
+            node.offsetY(newH / 2);
+            const pos = node.position();
+            if (hadOffset) {
+              topLeftX = pos.x - newW / 2;
+              topLeftY = pos.y - newH / 2;
+            } else {
+              const centerX = placement.x + placement.w / 2;
+              const centerY = placement.y + placement.h / 2;
+              topLeftX = centerX - newW / 2;
+              topLeftY = centerY - newH / 2;
+            }
+          } else {
+            node.offsetX(0);
+            node.offsetY(0);
+            const pos = node.position();
+            topLeftX = pos.x;
+            topLeftY = pos.y;
+          }
           onChange({
             ...placement,
-            x: node.x(),
-            y: node.y(),
-            w: Math.max(20, node.width() * scaleX),
-            h: Math.max(20, node.height() * scaleY),
+            x: topLeftX,
+            y: topLeftY,
+            w: newW,
+            h: newH,
+            rotation: rot,
           });
         }}
       />

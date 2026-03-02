@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getErrorMessage } from "@/lib/api";
 import {
   computeAutolayout,
@@ -12,6 +12,7 @@ import {
 import { type Orientation, type PaperSize } from "@/lib/constants";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const AUTOSAVE_DEBOUNCE_MS = 1000;
 
 const EditorCanvas = dynamic(() => import("@/components/EditorCanvas"), {
   ssr: false,
@@ -47,6 +48,10 @@ export default function EditorPage({
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [exportSuccess, setExportSuccess] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [layoutRestored, setLayoutRestored] = useState(false);
+  const skipNextLayoutEffectRef = useRef(false);
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchProject = useCallback(async () => {
     const res = await fetch(`${API_URL}/projects/${projectId}`);
@@ -67,6 +72,38 @@ export default function EditorPage({
       });
   }, [fetchProject]);
 
+  const fetchLayout = useCallback(async () => {
+    const res = await fetch(`${API_URL}/projects/${projectId}/layout`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.layout?.settings && data.layout?.placements ? data.layout : null;
+  }, [projectId]);
+
+  const saveLayout = useCallback(async () => {
+    setSaveStatus("saving");
+    try {
+      const layout = {
+        settings,
+        placements: Object.fromEntries(
+          Object.entries(placements).map(([k, v]) => [k, v])
+        ),
+      };
+      const res = await fetch(`${API_URL}/projects/${projectId}/layout`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ layout }),
+      });
+      if (!res.ok) {
+        const msg = await getErrorMessage(res, "Save failed");
+        throw new Error(msg);
+      }
+      setSaveStatus("saved");
+      setTimeout(() => setSaveStatus("idle"), 2000);
+    } catch {
+      setSaveStatus("idle");
+    }
+  }, [projectId, settings, placements]);
+
   const applyAutolayout = useCallback(() => {
     const next = computeAutolayout(
       assets.map((a) => ({ id: a.id, width: a.width, height: a.height })),
@@ -76,16 +113,60 @@ export default function EditorPage({
     setPageIndex(0);
   }, [assets, settings]);
 
-  // Initial layout when assets load
+  // Fetch and restore saved layout when assets load
   useEffect(() => {
-    if (assets.length > 0 && Object.keys(placements).length === 0) {
+    if (assets.length === 0 || layoutRestored) return;
+    let cancelled = false;
+    fetchLayout().then((saved) => {
+      if (cancelled) return;
+      if (saved) {
+        const { settings: s, placements: p } = saved;
+        if (s && s.paper && s.orientation && s.margins != null && s.targetPages != null) {
+          setSettings({
+            paper: s.paper,
+            orientation: s.orientation,
+            margins: s.margins,
+            targetPages: s.targetPages,
+          });
+        }
+        if (p && typeof p === "object") {
+          const restored: Record<number, Placement[]> = {};
+          for (const [k, v] of Object.entries(p)) {
+            const idx = parseInt(k, 10);
+            if (!isNaN(idx) && Array.isArray(v)) {
+              restored[idx] = v.filter(
+                (item: Placement) =>
+                  item?.assetId && typeof item.x === "number" && typeof item.w === "number"
+              );
+            }
+          }
+          if (Object.keys(restored).length > 0) {
+            skipNextLayoutEffectRef.current = true;
+            setPlacements(restored);
+          }
+        }
+      }
+      setLayoutRestored(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [assets.length, layoutRestored, fetchLayout]);
+
+  // Initial layout when assets load (no saved layout)
+  useEffect(() => {
+    if (assets.length > 0 && Object.keys(placements).length === 0 && layoutRestored) {
       applyAutolayout();
     }
-  }, [assets, placements, applyAutolayout]);
+  }, [assets, placements, applyAutolayout, layoutRestored]);
 
-  // Re-layout when target pages, paper, orientation, or margins change
+  // Re-layout when target pages, paper, orientation, or margins change (user-initiated)
   useEffect(() => {
     if (assets.length === 0) return;
+    if (skipNextLayoutEffectRef.current) {
+      skipNextLayoutEffectRef.current = false;
+      return;
+    }
     const next = computeAutolayout(
       assets.map((a) => ({ id: a.id, width: a.width, height: a.height })),
       settings
@@ -101,6 +182,20 @@ export default function EditorPage({
     },
     []
   );
+
+  // Autosave: debounce 1s after settings or placements change
+  useEffect(() => {
+    if (!layoutRestored || assets.length === 0) return;
+    setSaveStatus("saving");
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = setTimeout(() => {
+      autosaveTimerRef.current = null;
+      saveLayout();
+    }, AUTOSAVE_DEBOUNCE_MS);
+    return () => {
+      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    };
+  }, [layoutRestored, assets.length, settings, placements, saveLayout]);
 
   const handleExport = useCallback(async () => {
     setExportError(null);
@@ -119,6 +214,7 @@ export default function EditorPage({
             y: p.y,
             w: p.w,
             h: p.h,
+            ...(p.rotation != null && p.rotation !== 0 && { rotation: p.rotation }),
           })),
         })),
       };
@@ -181,9 +277,17 @@ export default function EditorPage({
 
   return (
     <main style={{ maxWidth: 900, margin: "0 auto", padding: 24 }}>
-      <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 16 }}>
+      <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
         <Link href="/" style={{ color: "#06c" }}>← Home</Link>
         <h1 style={{ margin: 0 }}>Editor</h1>
+        <span
+          style={{
+            fontSize: 13,
+            color: saveStatus === "saving" ? "#666" : saveStatus === "saved" ? "#22c55e" : "#999",
+          }}
+        >
+          {saveStatus === "saving" ? "Saving…" : saveStatus === "saved" ? "Saved" : ""}
+        </span>
       </div>
 
       {/* Settings */}

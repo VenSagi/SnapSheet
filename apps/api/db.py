@@ -56,10 +56,28 @@ def init_db():
                 id TEXT PRIMARY KEY,
                 project_id TEXT NOT NULL,
                 pdf_path TEXT NOT NULL,
+                version_name TEXT,
                 created_at TEXT NOT NULL,
+                FOREIGN KEY (project_id) REFERENCES projects(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS layouts (
+                project_id TEXT PRIMARY KEY,
+                layout_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
                 FOREIGN KEY (project_id) REFERENCES projects(id)
             );
 
             CREATE INDEX IF NOT EXISTS idx_assets_project_id ON assets(project_id);
             CREATE INDEX IF NOT EXISTS idx_exports_project_id ON exports(project_id);
         """)
+    _migrate_exports_version_name()
+
+
+def _migrate_exports_version_name():
+    """Add version_name to exports if missing (for existing DBs)."""
+    with get_connection() as conn:
+        cursor = conn.execute("PRAGMA table_info(exports)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if "version_name" not in columns:
+            conn.execute("ALTER TABLE exports ADD COLUMN version_name TEXT")

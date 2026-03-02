@@ -1,6 +1,13 @@
 import { INCH_TO_POINTS, PAGE_SIZES, type Orientation, type PaperSize } from "./constants";
 
-export type Placement = { assetId: string; x: number; y: number; w: number; h: number };
+export type Placement = {
+  assetId: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  rotation?: number;
+};
 
 export type LayoutSettings = {
   paper: PaperSize;

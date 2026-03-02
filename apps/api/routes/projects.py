@@ -10,9 +10,11 @@ from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from reportlab.lib.pagesizes import A4, letter
 from reportlab.pdfgen import canvas
 
+import json
+
 from config import settings
 from db import get_connection
-from models import CreateProjectRequest, ExportRequest, ExportPlacementItem
+from models import CreateProjectRequest, ExportRequest, ExportPlacementItem, SaveLayoutRequest
 
 from routes.assets import _validate_image_file
 
@@ -55,7 +57,8 @@ def _clamp_placement_to_bounds(
     if y + h > content_bottom:
         h = max(1, content_bottom - y)
 
-    return ExportPlacementItem(assetId=item.assetId, x=x, y=y, w=w, h=h)
+    rot = getattr(item, "rotation", 0) or 0
+    return ExportPlacementItem(assetId=item.assetId, x=x, y=y, w=w, h=h, rotation=rot)
 
 
 def _row_to_project(row) -> dict:
@@ -127,6 +130,59 @@ def get_project(project_id: str, request: Request):
         assets = [_row_to_asset(r, base_url) for r in assets_rows]
 
     return {"project": project, "assets": assets}
+
+
+@router.get("/{project_id}/layout")
+def get_layout(project_id: str):
+    """Get saved layout for a project. Returns null if none saved."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id FROM projects WHERE id = ?",
+            (project_id,),
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail=f"Project {project_id} not found")
+
+        row = conn.execute(
+            "SELECT layout_json, updated_at FROM layouts WHERE project_id = ?",
+            (project_id,),
+        ).fetchone()
+
+    if not row:
+        return {"layout": None}
+
+    try:
+        layout = json.loads(row["layout_json"])
+    except json.JSONDecodeError:
+        return {"layout": None}
+
+    return {"layout": layout, "updated_at": row["updated_at"]}
+
+
+@router.put("/{project_id}/layout")
+def save_layout(project_id: str, body: SaveLayoutRequest):
+    """Save layout for a project. Overwrites existing."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id FROM projects WHERE id = ?",
+            (project_id,),
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail=f"Project {project_id} not found")
+
+        layout_json = json.dumps(body.layout)
+        updated_at = datetime.now(timezone.utc).isoformat()
+
+        conn.execute(
+            """INSERT INTO layouts (project_id, layout_json, updated_at)
+               VALUES (?, ?, ?)
+               ON CONFLICT(project_id) DO UPDATE SET
+                 layout_json = excluded.layout_json,
+                 updated_at = excluded.updated_at""",
+            (project_id, layout_json, updated_at),
+        )
+
+    return {"updated_at": updated_at}
 
 
 @router.post("/{project_id}/assets")
@@ -269,24 +325,53 @@ def export_project(project_id: str, body: ExportRequest, request: Request):
             clamped = _clamp_placement_to_bounds(
                 item, page_w, page_h, body.margins
             )
-            rl_y = page_h - clamped.y - clamped.h
             img_path = Path(settings.UPLOAD_DIR) / asset_paths[clamped.assetId]
             if not img_path.exists():
                 raise HTTPException(
                     status_code=400,
                     detail=f"Asset file not found: {clamped.assetId}",
                 )
-            c.drawImage(
-                str(img_path), clamped.x, rl_y, width=clamped.w, height=clamped.h
-            )
+            rot = getattr(clamped, "rotation", 0) or 0
+            if abs(rot) > 0.01:
+                center_x = clamped.x + clamped.w / 2
+                center_y = page_h - (clamped.y + clamped.h / 2)
+                c.saveState()
+                c.translate(center_x, center_y)
+                c.rotate(-rot)
+                c.translate(-clamped.w / 2, -clamped.h / 2)
+                c.drawImage(
+                    str(img_path), 0, 0, width=clamped.w, height=clamped.h
+                )
+                c.restoreState()
+            else:
+                rl_y = page_h - clamped.y - clamped.h
+                c.drawImage(
+                    str(img_path), clamped.x, rl_y, width=clamped.w, height=clamped.h
+                )
 
     c.save()
 
     created_at = datetime.now(timezone.utc).isoformat()
+
+    # Resolve version_name: use provided or auto-increment v1, v2, ...
+    version_name = body.version_name
+    if not version_name:
+        with get_connection() as conn:
+            rows = conn.execute(
+                "SELECT version_name FROM exports WHERE project_id = ? ORDER BY created_at DESC",
+                (project_id,),
+            ).fetchall()
+        max_n = 0
+        for r in rows:
+            v = r["version_name"] or ""
+            if v.startswith("v") and v[1:].isdigit():
+                max_n = max(max_n, int(v[1:]))
+        version_name = f"v{max_n + 1}"
+
     with get_connection() as conn:
         conn.execute(
-            "INSERT INTO exports (id, project_id, pdf_path, created_at) VALUES (?, ?, ?, ?)",
-            (export_id, project_id, rel_path, created_at),
+            "INSERT INTO exports (id, project_id, pdf_path, version_name, created_at) VALUES (?, ?, ?, ?, ?)",
+            (export_id, project_id, rel_path, version_name, created_at),
         )
 
     base_url = str(request.base_url).rstrip("/")
