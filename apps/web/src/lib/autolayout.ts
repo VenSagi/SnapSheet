@@ -46,9 +46,52 @@ function findBestGrid(
 }
 
 /**
+ * Distribute assets across pages by AREA (not just count) to balance load.
+ * Uses greedy bin-packing: assign each image to the page with smallest total area.
+ * Ensures every page gets at least 1 image (no empty pages).
+ */
+function distributeByArea(
+  assets: AssetWithSize[],
+  numPages: number
+): AssetWithSize[][] {
+  const n = assets.length;
+  if (n <= 0 || numPages <= 0) return [];
+
+  // Sort by area descending (largest first) for better packing
+  const withArea = assets.map((a) => ({
+    asset: a,
+    area: a.width * a.height,
+  }));
+  withArea.sort((a, b) => b.area - a.area);
+
+  // Each page: { assets: AssetWithSize[], totalArea: number }
+  const pages: { assets: AssetWithSize[]; totalArea: number }[] = Array.from(
+    { length: numPages },
+    () => ({ assets: [], totalArea: 0 })
+  );
+
+  // Greedy: assign each asset to the page with smallest total area
+  for (const { asset } of withArea) {
+    let minIdx = 0;
+    let minArea = pages[0].totalArea;
+    for (let i = 1; i < numPages; i++) {
+      if (pages[i].totalArea < minArea) {
+        minArea = pages[i].totalArea;
+        minIdx = i;
+      }
+    }
+    pages[minIdx].assets.push(asset);
+    pages[minIdx].totalArea += asset.width * asset.height;
+  }
+
+  return pages.map((p) => p.assets);
+}
+
+/**
  * Generate placements for all assets across pages.
- * Uses a dynamic grid per page: picks cols/rows that maximize image size
- * and minimize white space (instead of fixed 2–3 columns).
+ * - Uses AREA-based distribution to balance load (not just count)
+ * - Never creates empty pages: uses min(n, targetPages) pages when n < targetPages
+ * - Maximizes image size via findBestGrid per page
  */
 export function computeAutolayout(
   assets: AssetWithSize[],
@@ -71,28 +114,31 @@ export function computeAutolayout(
   const contentW = contentRight - contentX;
   const contentH = contentBottom - contentY;
 
-  const imagesPerPage = Math.max(1, Math.ceil(assets.length / targetPages));
+  const n = assets.length;
+  if (n === 0) return { 0: [] };
+
+  // Use only as many pages as we need - NEVER create empty pages
+  const numPages = Math.min(Math.max(1, targetPages), Math.max(1, n));
+
+  const pageAssetLists = distributeByArea(assets, numPages);
 
   const result: Record<number, Placement[]> = {};
   let assetIdx = 0;
 
-  for (let page = 0; page < targetPages; page++) {
-    const placements: Placement[] = [];
-    const pageAssetCount = Math.min(
-      imagesPerPage,
-      Math.max(0, assets.length - assetIdx)
-    );
-    const pageAssets = assets.slice(assetIdx, assetIdx + pageAssetCount);
+  for (let page = 0; page < numPages; page++) {
+    const pageAssets = pageAssetLists[page];
+    if (pageAssets.length === 0) continue; // skip (shouldn't happen with area distribution)
 
+    const placements: Placement[] = [];
     const { cols, rows } = findBestGrid(pageAssets, contentW, contentH);
     const cellW = contentW / cols;
     const cellH = contentH / rows;
 
-    for (let r = 0; r < rows && assetIdx < assets.length; r++) {
-      for (let c = 0; c < cols && assetIdx < assets.length; c++) {
-        const asset = assets[assetIdx];
-        const cellX = contentX + c * cellW;
-        const cellY = contentY + r * cellH;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const idx = r * cols + c;
+        if (idx >= pageAssets.length) break;
+        const asset = pageAssets[idx];
 
         const scale = Math.min(
           cellW / asset.width,
@@ -100,10 +146,9 @@ export function computeAutolayout(
         );
         let w = asset.width * scale;
         let h = asset.height * scale;
-        let x = cellX + (cellW - w) / 2;
-        const y = cellY + (cellH - h) / 2;
+        let x = contentX + c * cellW + (cellW - w) / 2;
+        const y = contentY + r * cellH + (cellH - h) / 2;
 
-        // Clamp to content bounds (avoids right/bottom overflow from floating point)
         const rightEdge = x + w;
         if (rightEdge > contentRight) {
           w = Math.max(20, contentRight - x);
@@ -116,9 +161,9 @@ export function computeAutolayout(
         }
 
         placements.push({ assetId: asset.id, x, y, w, h });
-        assetIdx++;
       }
     }
+
     result[page] = placements;
   }
 

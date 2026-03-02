@@ -83,7 +83,7 @@ export default function EditorPage({
     }
   }, [assets, placements, applyAutolayout]);
 
-  // Re-layout when target pages, paper, or orientation changes (spread images across new page count)
+  // Re-layout when target pages, paper, orientation, or margins change
   useEffect(() => {
     if (assets.length === 0) return;
     const next = computeAutolayout(
@@ -93,7 +93,7 @@ export default function EditorPage({
     setPlacements(next);
     setPageIndex(0);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run when layout-affecting settings change; settings/assets from closure are current
-  }, [settings.targetPages, settings.paper, settings.orientation]);
+  }, [settings.targetPages, settings.paper, settings.orientation, settings.margins]);
 
   const handlePlacementsChange = useCallback(
     (pageIdx: number, next: Placement[]) => {
