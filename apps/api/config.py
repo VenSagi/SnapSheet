@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "data/uploads"
     OUTPUT_DIR: str = "data/outputs"
     MAX_UPLOAD_MB: int = 25
+    MAX_ASSETS_PER_PROJECT: int = 200
     DB_PATH: str = "data/db.sqlite"
 
 

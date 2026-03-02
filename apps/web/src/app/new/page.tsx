@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { getErrorMessage } from "@/lib/api";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -33,8 +34,8 @@ export default function NewPage() {
       body: JSON.stringify({ name: "My Cheat Sheet" }),
     });
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || `Failed to create project: ${res.status}`);
+      const msg = await getErrorMessage(res, `Failed to create project (${res.status})`);
+      throw new Error(msg);
     }
     const data = await res.json();
     setProjectId(data.id);
@@ -77,8 +78,8 @@ export default function NewPage() {
         });
 
         if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.detail || `Upload failed: ${res.status}`);
+          const msg = await getErrorMessage(res, `Upload failed (${res.status})`);
+          throw new Error(msg);
         }
 
         await fetchProject(pid);
@@ -136,15 +137,24 @@ export default function NewPage() {
 
       {error && (
         <div
+          role="alert"
           style={{
-            padding: 12,
+            padding: 14,
             marginBottom: 16,
-            background: "#fee",
-            border: "1px solid #c00",
-            borderRadius: 4,
+            background: "#fef2f2",
+            border: "1px solid #dc2626",
+            borderRadius: 6,
+            color: "#991b1b",
+            display: "flex",
+            alignItems: "flex-start",
+            gap: 10,
           }}
         >
-          {error}
+          <span style={{ flexShrink: 0 }} aria-hidden>⚠</span>
+          <div>
+            <strong>Error</strong>
+            <p style={{ margin: "4px 0 0", fontSize: 14 }}>{error}</p>
+          </div>
         </div>
       )}
 

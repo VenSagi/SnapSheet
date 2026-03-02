@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { getErrorMessage } from "@/lib/api";
 import {
   computeAutolayout,
   type LayoutSettings,
@@ -45,10 +46,14 @@ export default function EditorPage({
   const [pageIndex, setPageIndex] = useState(0);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [exportSuccess, setExportSuccess] = useState(false);
 
   const fetchProject = useCallback(async () => {
     const res = await fetch(`${API_URL}/projects/${projectId}`);
-    if (!res.ok) throw new Error("Failed to fetch project");
+    if (!res.ok) {
+      const msg = await getErrorMessage(res, "Failed to load project");
+      throw new Error(msg);
+    }
     const data = await res.json();
     setAssets(data.assets || []);
   }, [projectId]);
@@ -125,14 +130,18 @@ export default function EditorPage({
       });
 
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || `Export failed: ${res.status}`);
+        const msg = await getErrorMessage(res, `Export failed (${res.status})`);
+        throw new Error(msg);
       }
 
-      const { exportId, downloadUrl } = await res.json();
+      const { downloadUrl } = await res.json();
       window.open(downloadUrl, "_blank");
+      setExportSuccess(true);
+      setExportError(null);
+      setTimeout(() => setExportSuccess(false), 4000);
     } catch (e) {
       setExportError(e instanceof Error ? e.message : "Export failed");
+      setExportSuccess(false);
     } finally {
       setExporting(false);
     }
@@ -321,15 +330,44 @@ export default function EditorPage({
 
       {exportError && (
         <div
+          role="alert"
           style={{
-            padding: 12,
+            padding: 14,
             marginBottom: 16,
-            background: "#fee",
-            border: "1px solid #c00",
-            borderRadius: 4,
+            background: "#fef2f2",
+            border: "1px solid #dc2626",
+            borderRadius: 6,
+            color: "#991b1b",
+            display: "flex",
+            alignItems: "flex-start",
+            gap: 10,
           }}
         >
-          {exportError}
+          <span style={{ flexShrink: 0 }} aria-hidden>⚠</span>
+          <div>
+            <strong>Export failed</strong>
+            <p style={{ margin: "4px 0 0", fontSize: 14 }}>{exportError}</p>
+          </div>
+        </div>
+      )}
+
+      {exportSuccess && (
+        <div
+          role="status"
+          style={{
+            padding: 14,
+            marginBottom: 16,
+            background: "#f0fdf4",
+            border: "1px solid #22c55e",
+            borderRadius: 6,
+            color: "#166534",
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+          }}
+        >
+          <span aria-hidden>✓</span>
+          <strong>PDF exported successfully!</strong> The download should open in a new tab.
         </div>
       )}
 

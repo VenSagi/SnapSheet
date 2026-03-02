@@ -12,9 +12,43 @@ export type LayoutSettings = {
 type AssetWithSize = { id: string; width: number; height: number };
 
 /**
+ * Find the grid (cols x rows) that maximizes the minimum image scale
+ * for the given assets, filling the content area.
+ */
+function findBestGrid(
+  pageAssets: AssetWithSize[],
+  contentW: number,
+  contentH: number
+): { cols: number; rows: number } {
+  const n = pageAssets.length;
+  if (n <= 0) return { cols: 1, rows: 1 };
+  if (n === 1) return { cols: 1, rows: 1 };
+
+  let best = { cols: 1, rows: 1, minScale: 0 };
+
+  for (let cols = 1; cols <= n; cols++) {
+    const rows = Math.ceil(n / cols);
+    const cellW = contentW / cols;
+    const cellH = contentH / rows;
+
+    let minScale = Infinity;
+    for (const asset of pageAssets) {
+      const s = Math.min(cellW / asset.width, cellH / asset.height);
+      minScale = Math.min(minScale, s);
+    }
+
+    if (minScale > best.minScale) {
+      best = { cols, rows, minScale };
+    }
+  }
+
+  return { cols: best.cols, rows: best.rows };
+}
+
+/**
  * Generate placements for all assets across pages.
- * Uses uniform grid: 2 cols portrait, 3 cols landscape.
- * Keeps aspect ratio; centers image in each cell.
+ * Uses a dynamic grid per page: picks cols/rows that maximize image size
+ * and minimize white space (instead of fixed 2–3 columns).
  */
 export function computeAutolayout(
   assets: AssetWithSize[],
@@ -37,7 +71,6 @@ export function computeAutolayout(
   const contentW = contentRight - contentX;
   const contentH = contentBottom - contentY;
 
-  const maxCols = orientation === "portrait" ? 2 : 3;
   const imagesPerPage = Math.max(1, Math.ceil(assets.length / targetPages));
 
   const result: Record<number, Placement[]> = {};
@@ -49,13 +82,13 @@ export function computeAutolayout(
       imagesPerPage,
       Math.max(0, assets.length - assetIdx)
     );
-    // Use fewer cols when we have fewer images (e.g. 1 image = full width)
-    const cols = Math.min(maxCols, Math.max(1, pageAssetCount));
-    const pageRows = Math.ceil(pageAssetCount / cols);
-    const cellW = contentW / cols;
-    const cellH = contentH / pageRows;
+    const pageAssets = assets.slice(assetIdx, assetIdx + pageAssetCount);
 
-    for (let r = 0; r < pageRows && assetIdx < assets.length; r++) {
+    const { cols, rows } = findBestGrid(pageAssets, contentW, contentH);
+    const cellW = contentW / cols;
+    const cellH = contentH / rows;
+
+    for (let r = 0; r < rows && assetIdx < assets.length; r++) {
       for (let c = 0; c < cols && assetIdx < assets.length; c++) {
         const asset = assets[assetIdx];
         const cellX = contentX + c * cellW;

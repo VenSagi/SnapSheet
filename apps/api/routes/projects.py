@@ -12,13 +12,50 @@ from reportlab.pdfgen import canvas
 
 from config import settings
 from db import get_connection
-from models import CreateProjectRequest, ExportRequest
+from models import CreateProjectRequest, ExportRequest, ExportPlacementItem
 
 from routes.assets import _validate_image_file
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
 PAGE_SIZES = {"Letter": letter, "A4": A4}
+INCH_TO_POINTS = 72
+
+
+def _clamp_placement_to_bounds(
+    item: ExportPlacementItem,
+    page_w: float,
+    page_h: float,
+    margins: dict[str, float],
+) -> ExportPlacementItem:
+    """
+    Clamp placement item to content area (within margins).
+    Items outside bounds are moved and/or resized to fit.
+    """
+    ml = margins.get("left", 0) * INCH_TO_POINTS
+    mr = margins.get("right", 0) * INCH_TO_POINTS
+    mt = margins.get("top", 0) * INCH_TO_POINTS
+    mb = margins.get("bottom", 0) * INCH_TO_POINTS
+
+    content_x = ml
+    content_y = mt
+    content_right = page_w - mr
+    content_bottom = page_h - mb
+    content_w = max(1, content_right - content_x)
+    content_h = max(1, content_bottom - content_y)
+
+    x = max(content_x, min(content_right - 1, item.x))
+    y = max(content_y, min(content_bottom - 1, item.y))
+    w = max(1, min(content_w, item.w))
+    h = max(1, min(content_h, item.h))
+
+    # Ensure right/bottom edges stay within bounds
+    if x + w > content_right:
+        w = max(1, content_right - x)
+    if y + h > content_bottom:
+        h = max(1, content_bottom - y)
+
+    return ExportPlacementItem(assetId=item.assetId, x=x, y=y, w=w, h=h)
 
 
 def _row_to_project(row) -> dict:
@@ -99,6 +136,7 @@ def upload_assets(project_id: str, files: list[UploadFile] = File(..., alias="fi
         raise HTTPException(status_code=400, detail="At least one file is required")
 
     max_bytes = settings.MAX_UPLOAD_MB * 1024 * 1024
+    max_assets = settings.MAX_ASSETS_PER_PROJECT
 
     with get_connection() as conn:
         row = conn.execute(
@@ -107,6 +145,16 @@ def upload_assets(project_id: str, files: list[UploadFile] = File(..., alias="fi
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail=f"Project {project_id} not found")
+
+        current_count = conn.execute(
+            "SELECT COUNT(*) as n FROM assets WHERE project_id = ?",
+            (project_id,),
+        ).fetchone()["n"]
+        if current_count + len(files) > max_assets:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Project cannot have more than {max_assets} assets. Current: {current_count}, adding: {len(files)}.",
+            )
 
     upload_dir = Path(settings.UPLOAD_DIR) / project_id
     upload_dir.mkdir(parents=True, exist_ok=True)
@@ -218,14 +266,19 @@ def export_project(project_id: str, body: ExportRequest, request: Request):
             c.showPage()
 
         for item in page_data.items:
-            rl_y = page_h - item.y - item.h
-            img_path = Path(settings.UPLOAD_DIR) / asset_paths[item.assetId]
+            clamped = _clamp_placement_to_bounds(
+                item, page_w, page_h, body.margins
+            )
+            rl_y = page_h - clamped.y - clamped.h
+            img_path = Path(settings.UPLOAD_DIR) / asset_paths[clamped.assetId]
             if not img_path.exists():
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Asset file not found: {item.assetId}",
+                    detail=f"Asset file not found: {clamped.assetId}",
                 )
-            c.drawImage(str(img_path), item.x, rl_y, width=item.w, height=item.h)
+            c.drawImage(
+                str(img_path), clamped.x, rl_y, width=clamped.w, height=clamped.h
+            )
 
     c.save()
 

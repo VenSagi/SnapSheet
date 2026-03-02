@@ -1,4 +1,4 @@
-# Cheat Sheet Maker
+# Cheat Sheet Maker (SnapSheet)
 
 Upload screenshots, lay them out on pages, and export to PDF.
 
@@ -35,7 +35,15 @@ python -m uvicorn main:app --reload
 
 Runs at [http://localhost:8000](http://localhost:8000). Health check: [http://localhost:8000/health](http://localhost:8000/health).
 
-**Key API endpoints:**
+## End-to-End Flow
+
+1. **Create project** – Go to `/new`. A project is created automatically when you first upload.
+2. **Upload images** – Drag & drop or click to select PNG, JPG, JPEG, or WebP. Max 25MB per file, max 200 assets per project.
+3. **Edit layout** – Click "Continue to Editor". Adjust paper size, orientation, margins, and target pages. Use "Reset layout" to reflow images.
+4. **Export PDF** – Click "Export PDF". The file downloads in a new tab. A success message confirms the export.
+
+## Key API Endpoints
+
 - `POST /projects` – create project (body: `{"name": "..."}`)
 - `GET /projects/{id}` – get project with assets (each asset has `file_url`)
 - `POST /projects/{id}/assets` – upload images (multipart, field: `files`)
@@ -43,20 +51,19 @@ Runs at [http://localhost:8000](http://localhost:8000). Health check: [http://lo
 - `POST /projects/{id}/export` – export to PDF (body: page settings + placements in points)
 - `GET /exports/{id}/download` – download exported PDF
 
-**Where files are stored (PoC):**
+## Validation & Limits
+
+- **Export payload**: Non-negative sizes (x, y ≥ 0; w, h > 0). Placements outside page bounds are **clamped** to the content area (within margins). Missing or foreign `assetId`s are rejected.
+- **Max assets per project**: 200 (configurable via `MAX_ASSETS_PER_PROJECT`).
+- **Max upload size**: 25MB per file (configurable via `MAX_UPLOAD_MB`).
+- **Error responses**: All API errors return `{ "detail": "string" }` for consistent handling.
+
+## Where Files Are Stored (PoC)
 
 - `data/uploads` – uploaded images (created on startup if missing)
 - `data/outputs` – exported PDFs (created on startup if missing)
 - `data/db.sqlite` – SQLite metadata DB (projects, assets, exports)
 
-Paths are relative to `apps/api` when run from that directory. Override via env vars (`UPLOAD_DIR`, `OUTPUT_DIR`, `DB_PATH`). See `apps/api/.env.example`.
+Paths are relative to `apps/api` when run from that directory. Override via env vars (`UPLOAD_DIR`, `OUTPUT_DIR`, `DB_PATH`, `MAX_ASSETS_PER_PROJECT`). See `apps/api/.env.example`.
 
 **Reset the database:** Delete `data/db.sqlite` and restart the API. Tables are recreated on startup.
-
-## Data Directories (PoC)
-
-- `data/uploads` – uploaded images
-- `data/outputs` – exported PDFs
-- `data/db.sqlite` – SQLite metadata DB
-
-These are excluded from git via `.gitignore`.
