@@ -7,3 +7,35 @@ class CreateProjectRequest(BaseModel):
     """Request body for POST /projects."""
 
     name: str = Field(..., min_length=1, description="Project name")
+
+
+class ExportPlacementItem(BaseModel):
+    """Single image placement. All units in PDF points (1 inch = 72 pts)."""
+
+    assetId: str
+    x: float = Field(..., ge=0)
+    y: float = Field(..., ge=0)
+    w: float = Field(..., gt=0)
+    h: float = Field(..., gt=0)
+
+
+class ExportPage(BaseModel):
+    """Placements for one page."""
+
+    items: list[ExportPlacementItem] = Field(default_factory=list)
+
+
+class ExportRequest(BaseModel):
+    """Request body for POST /projects/{id}/export. Units: points."""
+
+    paper: str = Field(..., pattern="^(Letter|A4)$")
+    orientation: str = Field(..., pattern="^(portrait|landscape)$")
+    margins: dict[str, float] = Field(
+        ...,
+        description="top, right, bottom, left in inches",
+    )
+    page_count: int = Field(..., ge=1)
+    placements: list[ExportPage] = Field(
+        ...,
+        description="pages[] each with items[] { assetId, x, y, w, h } in points",
+    )

@@ -40,6 +40,8 @@ Runs at [http://localhost:8000](http://localhost:8000). Health check: [http://lo
 - `GET /projects/{id}` – get project with assets (each asset has `file_url`)
 - `POST /projects/{id}/assets` – upload images (multipart, field: `files`)
 - `GET /assets/{id}/file` – serve image file
+- `POST /projects/{id}/export` – export to PDF (body: page settings + placements in points)
+- `GET /exports/{id}/download` – download exported PDF
 
 **Where files are stored (PoC):**
 

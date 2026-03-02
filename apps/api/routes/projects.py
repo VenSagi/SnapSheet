@@ -7,13 +7,18 @@ from pathlib import Path
 
 from PIL import Image
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from reportlab.lib.pagesizes import A4, letter
+from reportlab.pdfgen import canvas
 
 from config import settings
 from db import get_connection
-from models import CreateProjectRequest
+from models import CreateProjectRequest, ExportRequest
+
 from routes.assets import _validate_image_file
 
 router = APIRouter(prefix="/projects", tags=["projects"])
+
+PAGE_SIZES = {"Letter": letter, "A4": A4}
 
 
 def _row_to_project(row) -> dict:
@@ -153,3 +158,85 @@ def upload_assets(project_id: str, files: list[UploadFile] = File(..., alias="fi
         })
 
     return {"uploaded": len(created), "assets": created}
+
+
+@router.post("/{project_id}/export")
+def export_project(project_id: str, body: ExportRequest, request: Request):
+    """
+    Export project to PDF. All coordinates in PDF points (1 inch = 72 pts).
+    Frontend: top-left origin, y down. ReportLab: bottom-left origin, y up.
+    Conversion: rl_y = page_height - fe_y - fe_h.
+    """
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id FROM projects WHERE id = ?",
+            (project_id,),
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail=f"Project {project_id} not found")
+
+        # Validate page_count matches placements length
+        if len(body.placements) != body.page_count:
+            raise HTTPException(
+                status_code=400,
+                detail=f"placements length ({len(body.placements)}) must match page_count ({body.page_count})",
+            )
+
+        # Build asset_id -> stored_path map, validate all belong to project
+        asset_paths = {}
+        for page_data in body.placements:
+            for item in page_data.items:
+                if item.assetId in asset_paths:
+                    continue
+                arow = conn.execute(
+                    "SELECT stored_path FROM assets WHERE id = ? AND project_id = ?",
+                    (item.assetId, project_id),
+                ).fetchone()
+                if not arow:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Asset {item.assetId} not found or does not belong to project",
+                    )
+                asset_paths[item.assetId] = arow["stored_path"]
+
+    export_id = str(uuid.uuid4())
+    pts = PAGE_SIZES[body.paper]
+    page_w, page_h = pts[0], pts[1]
+    if body.orientation == "landscape":
+        page_w, page_h = page_h, page_w
+
+    out_dir = Path(settings.OUTPUT_DIR) / project_id
+    out_dir.mkdir(parents=True, exist_ok=True)
+    pdf_filename = f"{export_id}.pdf"
+    pdf_path = out_dir / pdf_filename
+    rel_path = f"{project_id}/{pdf_filename}"
+
+    c = canvas.Canvas(str(pdf_path), pagesize=(page_w, page_h))
+
+    for page_idx, page_data in enumerate(body.placements):
+        if page_idx > 0:
+            c.showPage()
+
+        for item in page_data.items:
+            rl_y = page_h - item.y - item.h
+            img_path = Path(settings.UPLOAD_DIR) / asset_paths[item.assetId]
+            if not img_path.exists():
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Asset file not found: {item.assetId}",
+                )
+            c.drawImage(str(img_path), item.x, rl_y, width=item.w, height=item.h)
+
+    c.save()
+
+    created_at = datetime.now(timezone.utc).isoformat()
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO exports (id, project_id, pdf_path, created_at) VALUES (?, ?, ?, ?)",
+            (export_id, project_id, rel_path, created_at),
+        )
+
+    base_url = str(request.base_url).rstrip("/")
+    download_url = f"{base_url}/exports/{export_id}/download"
+
+    return {"exportId": export_id, "downloadUrl": download_url}

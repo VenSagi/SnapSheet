@@ -43,6 +43,8 @@ export default function EditorPage({
   const [settings, setSettings] = useState<LayoutSettings>(DEFAULT_SETTINGS);
   const [placements, setPlacements] = useState<Record<number, Placement[]>>({});
   const [pageIndex, setPageIndex] = useState(0);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const fetchProject = useCallback(async () => {
     const res = await fetch(`${API_URL}/projects/${projectId}`);
@@ -94,6 +96,47 @@ export default function EditorPage({
     },
     []
   );
+
+  const handleExport = useCallback(async () => {
+    setExportError(null);
+    setExporting(true);
+    try {
+      const pageCount = Math.max(1, Object.keys(placements).length);
+      const exportPayload = {
+        paper: settings.paper,
+        orientation: settings.orientation,
+        margins: settings.margins,
+        page_count: pageCount,
+        placements: Array.from({ length: pageCount }, (_, i) => ({
+          items: (placements[i] || []).map((p) => ({
+            assetId: p.assetId,
+            x: p.x,
+            y: p.y,
+            w: p.w,
+            h: p.h,
+          })),
+        })),
+      };
+
+      const res = await fetch(`${API_URL}/projects/${projectId}/export`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(exportPayload),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `Export failed: ${res.status}`);
+      }
+
+      const { exportId, downloadUrl } = await res.json();
+      window.open(downloadUrl, "_blank");
+    } catch (e) {
+      setExportError(e instanceof Error ? e.message : "Export failed");
+    } finally {
+      setExporting(false);
+    }
+  }, [projectId, placements, settings]);
 
   const totalPages = Math.max(
     1,
@@ -260,7 +303,35 @@ export default function EditorPage({
         >
           Reset layout
         </button>
+        <button
+          onClick={handleExport}
+          disabled={exporting}
+          style={{
+            padding: "6px 12px",
+            background: exporting ? "#999" : "#28a745",
+            color: "white",
+            border: "none",
+            borderRadius: 4,
+            cursor: exporting ? "not-allowed" : "pointer",
+          }}
+        >
+          {exporting ? "Exporting…" : "Export PDF"}
+        </button>
       </div>
+
+      {exportError && (
+        <div
+          style={{
+            padding: 12,
+            marginBottom: 16,
+            background: "#fee",
+            border: "1px solid #c00",
+            borderRadius: 4,
+          }}
+        >
+          {exportError}
+        </div>
+      )}
 
       {/* Page nav + Canvas */}
       <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 12 }}>
